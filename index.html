@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stuw Simulator: Deep Link Connect</title>
+    <style>
+        :root {
+            --rws-blauw: #00549f;
+            --rws-wit: #ffffff;
+            --rws-grijs: #eeeeee;
+            --rws-donkergrijs: #666666;
+            --water-kleur: #a9d4e9;
+            --licht-blauw: #e0f2f7; 
+            --stop-rood: #d9534f;
+            --live-oranje: #e67e22; 
+            
+            --peil-goed: #4CAF50; 
+            --peil-te-hoog: #d9534f; 
+            --peil-te-laag: #00549f; 
+            
+            /* Logica Waarden (1600 m3/s = 4410) */
+            --klep-min-cm: 4275; --klep-max-cm: 4420; --klep-range-cm: 145; 
+            --schuif-min-cm: 3966; --schuif-max-cm: 4410; --schuif-range-cm: 444; 
+            --schip-min-cm: 3850; --schip-max-cm: 4410; --schip-range-cm: 560;
+            
+            --opening-height: 200px; 
+        }
+
+        body { font-family: Arial, sans-serif; background-color: var(--rws-grijs); padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .main-layout { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+        .control-column { display: flex; flex-direction: column; gap: 15px; width: 320px; }
+        .panel { background-color: var(--rws-wit); padding: 15px; border: 2px solid var(--rws-blauw); box-shadow: 0 4px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 8px; }
+        
+        h2 { margin: 0 0 5px 0; font-size: 15px; color: var(--rws-blauw); border-bottom: 1px solid #ccc; padding-bottom: 5px;}
+        .input-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; color: var(--rws-donkergrijs); }
+        input[type="number"] { width: 70px; padding: 2px; border: 1px solid #ccc; text-align: right;}
+        
+        button { padding: 8px; background-color: var(--rws-blauw); color: white; border: none; cursor: pointer; font-weight: bold; border-radius: 2px; transition: background 0.2s; }
+        button:hover { background-color: #003a70; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .sim-buttons { display: flex; gap: 5px; margin-top: 5px; }
+        .stop-sim { background-color: var(--stop-rood); }
+        
+        #btn-live { background-color: var(--live-oranje); width: 100%; margin-bottom: 5px;}
+        #btn-live:hover { background-color: #d35400; }
+
+        .auto-sync-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--rws-donkergrijs); background: #f9f9f9; padding: 5px; border: 1px solid #ddd; }
+        .sync-timer { font-family: monospace; color: var(--live-oranje); font-weight: bold; margin-left: auto; }
+
+        .peil-display { background-color: #333; color: #fff; font-family: 'Courier New', monospace; font-size: 18px; text-align: center; padding: 10px; border: 2px inset #555; margin-bottom: 10px; }
+        .peil-label { font-size: 10px; color: #ccc; display: block; margin-bottom: 2px;}
+
+        /* STUW VISUALISATIE */
+        .stuw-container { border: 2px solid var(--rws-donkergrijs); padding: 20px; background-color: var(--licht-blauw); display: flex; flex-direction: column; align-items: center; }
+        .stuw-labels { display: flex; width: 100%; justify-content: center; margin-bottom: 5px; }
+        .label-box { border: 2px solid var(--rws-blauw); background: white; color: var(--rws-blauw); font-weight: bold; font-size: 10px; height: 20px; display: flex; align-items: center; justify-content: center; }
+        .spui-label { width: 138px; } .scheepvaart-label { width: 180px; }
+        .pijler-spacer { width: 44px; } .pijler-spacer-groot { width: 54px; }
+
+        .stuw-complex { display: flex; align-items: flex-end; position: relative; justify-content: center; z-index: 1; }
+        .pijler { width: 40px; height: 300px; background: white; border: 2px solid #666; z-index: 10; position: relative; display: flex; justify-content: center; }
+        .pijler-groot { width: 50px; height: 391px; }
+        .gebouw { width: 50px; height: 50px; background: var(--rws-blauw); border: 2px solid white; margin-top: -10px; z-index: 20; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+
+        .opening { background-color: var(--water-kleur); border-left: 2px solid #666; border-right: 2px solid #666; overflow: visible; z-index: 5; display: flex; justify-content: center; position: relative;}
+        .spui { width: 138px; height: var(--opening-height); }
+        .scheepvaart { width: 180px; height: 150px; }
+
+        .gate-assembly { position: absolute; bottom: 0; width: 100%; height: calc(50% + 25%); transition: bottom 0.5s ease; z-index: 6; }
+        .schuif-deel { background: #666; position: absolute; bottom: 0; width: 100%; height: 50%; transition: background 0.3s; border-top: 1px solid #333; }
+        .klep-deel { background: white; border: 2px solid #666; position: absolute; bottom: 50%; width: 100%; height: 25%; transition: background 0.3s; }
+        .schuif-schip { height: 100%; background: #666; border-bottom: 2px solid #222; bottom: 0; position: absolute; width: 100%; transition: bottom 0.5s, background 0.3s; z-index: 15; }
+
+        .stuw-waardes { display: flex; width: 100%; justify-content: center; margin-top: 5px; }
+        .waarde-box { width: 138px; font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; color: var(--rws-blauw); background: white; border: 1px solid #666; padding: 4px; text-align: center; }
+        .waarde-box-groot { width: 180px; }
+
+        /* LIJST & LIVE STATUS */
+        .scenario-wrapper { width: 100%; max-width: 800px; margin-top: 20px; display: none; border: 1px solid #666; background: white; }
+        .live-status-bar { background: white; padding: 10px; border-bottom: 2px solid var(--rws-blauw); display: flex; justify-content: space-between; font-size: 13px; }
+        .live-status-bar strong { color: var(--rws-blauw); }
+        
+        .scenario-table-container { max-height: 250px; overflow-y: auto; position: relative; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { background: var(--rws-blauw); color: white; position: sticky; top: 0; padding: 6px; border: 1px solid #ccc; z-index: 2; }
+        td { border: 1px solid #ccc; padding: 5px; text-align: center; }
+        .active-row { background-color: #dff0d8; font-weight: bold; border-left: 5px solid #4CAF50; }
+
+        .modal { display: none; }
+        .error-link { font-size:10px; color: var(--rws-blauw); text-decoration: underline; cursor: pointer; display: block; text-align: center; margin-top: 5px;}
+    </style>
+</head>
+<body>
+
+    <div class="main-layout">
+        <div class="control-column">
+            
+            <div class="panel">
+                <div class="peil-display">
+                    <span class="peil-label">ACTUEEL PEIL (Streef: 4410)</span>
+                    <span id="main-peil-display">--.--</span> cm
+                </div>
+                
+                <button id="btn-live">📡 Haal Data (CodeTabs Proxy)</button>
+                <div id="live-status-msg" style="font-size: 11px; color: #666; text-align: center; margin-top: 2px;"></div>
+                
+                <div class="auto-sync-row">
+                    <input type="checkbox" id="chk-auto-sync" checked>
+                    <label for="chk-auto-sync">Auto-Sync (10 min)</label>
+                    <span class="sync-timer" id="sync-timer-display">--:--</span>
+                </div>
+                <a href="https://waterinfo.rws.nl/publiek/waterafvoer/Sint-Pieter-noord%28SINT%29/details" target="_blank" class="error-link">Controleer RWS Website</a>
+            </div>
+
+            <div class="panel">
+                <h2>Configuratie Pand</h2>
+                <div class="input-row">
+                    <label>Oppervlakte (m²):</label>
+                    <input type="number" id="config-area" value="3000000">
+                </div>
+                <div class="input-row">
+                    <label>Start Peil (cm):</label>
+                    <input type="number" id="config-start-peil" value="4405">
+                </div>
+                <div class="input-row">
+                    <label>Hersteltijd (min):</label>
+                    <input type="number" id="config-recovery" value="60">
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Scenario Generator</h2>
+                <div class="input-row"><label>Start Rivier (m³/s):</label><input type="number" id="scen-start" value=""></div>
+                <div class="input-row"><label>Eind Rivier (m³/s):</label><input type="number" id="scen-end" value=""></div>
+                <div class="input-row"><label>Tijdsduur (min):</label><input type="number" id="scen-time" value="60"></div>
+                <div style="border-top: 1px dashed #ccc; margin: 2px 0;"></div>
+                <div class="input-row"><label>Interval (min):</label><input type="number" id="scen-interval" value="10"></div>
+                <div class="input-row"><label>Snelheid (ms):</label><input type="number" id="scen-speed" value="1000"></div>
+                
+                <div class="sim-buttons"><button id="gen-btn">Maak Lijst</button></div>
+                <div class="sim-buttons">
+                    <button id="play-btn" style="background-color: #4CAF50;">&#9658; Start</button>
+                    <button id="stop-btn" class="stop-sim" disabled>&#9632; Stop</button>
+                </div>
+                <div id="sim-status" style="text-align:center; font-size:11px; color:#666;">Wacht op data...</div>
+            </div>
+            
+            <div class="panel">
+                <h2>Handmatige Invoer</h2>
+                <div class="input-row"><label>Rivier (m³/s):</label><input type="number" id="total-afvoer-input" value=""></div>
+                <button id="apply-afvoer-btn" style="margin-top:5px;">Zet Stuw Direct</button>
+            </div>
+        </div>
+
+        <div class="stuw-container"> 
+            <div class="stuw-labels">
+                <div class="pijler-spacer"></div><div class="label-box spui-label">West</div>
+                <div class="pijler-spacer"></div><div class="label-box spui-label">Bewest</div>
+                <div class="pijler-spacer-groot"></div><div class="label-box scheepvaart-label">Scheepvaart</div>
+                <div class="pijler-spacer-groot"></div><div class="label-box spui-label">Oost</div><div class="pijler-spacer"></div>
+            </div>
+            <div class="stuw-complex"> 
+                <div class="pijler"><div class="gebouw"></div></div>
+                <div class="opening spui"><div class="gate-assembly"><div class="schuif-deel"></div><div class="klep-deel"></div></div></div>
+                <div class="pijler"><div class="gebouw"></div></div>
+                <div class="opening spui"><div class="gate-assembly"><div class="schuif-deel"></div><div class="klep-deel"></div></div></div>
+                <div class="pijler pijler-groot"><div class="gebouw" style="width: 60px;"></div></div>
+                <div class="opening scheepvaart"><div class="schuif-schip" id="schip-schuif"></div></div>
+                <div class="pijler pijler-groot"><div class="gebouw" style="width: 60px;"></div></div>
+                <div class="opening spui"><div class="gate-assembly"><div class="schuif-deel"></div><div class="klep-deel"></div></div></div>
+                <div class="pijler"><div class="gebouw"></div></div>
+            </div>
+            <div class="stuw-waardes">
+                <div class="pijler-spacer"></div><div class="waarde-box" id="val-w">-</div>
+                <div class="pijler-spacer"></div><div class="waarde-box" id="val-bw">-</div>
+                <div class="pijler-spacer-groot"></div><div class="waarde-box waarde-box-groot" id="val-s">-</div>
+                <div class="pijler-spacer-groot"></div><div class="waarde-box" id="val-o">-</div><div class="pijler-spacer"></div>
+            </div>
+            <div class="stuw-waardes" style="margin-top:2px;">
+                <div class="waarde-box waarde-box-groot" id="totaal-afvoer-display" style="width: 650px; background:#eee;">Stuwafvoer: 0 m³/s</div>
+            </div>
+        </div> 
+    </div>
+
+    <div class="scenario-wrapper" id="scen-wrapper">
+        <div class="live-status-bar">
+            <div>Tijd: <strong id="l-time">0</strong> min</div>
+            <div>Huidig Peil: <strong id="l-peil">4410.00</strong></div>
+            <div>Rivier In: <strong id="l-in">0</strong> m³/s</div>
+            <div>Stuw Uit: <strong id="l-out">0</strong> m³/s</div>
+            <div>Actie: <strong id="l-action">-</strong></div>
+        </div>
+        <div class="scenario-table-container" id="scen-container">
+            <table id="scen-table">
+                <thead>
+                    <tr><th>Tijd</th><th>Rivier In</th><th>Peil</th><th>Peilverschil</th><th>Correctie</th><th>Stuw Uit</th><th>Modus</th></tr>
+                </thead>
+                <tbody id="scen-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTEN ---
+        const PEIL_STREEF = 4410;
+        const MAX_KLEP = 240; const MAX_TOTAAL = 1601; 
+        const KLEP_MIN=4275, KLEP_MAX=4420, KLEP_RNG=145;
+        const SCHUIF_MIN=3966, SCHUIF_MAX=4410, SCHUIF_RNG=444; 
+        const SCHIP_MIN=3850, SCHIP_MAX=4410, SCHIP_RNG=560;
+
+        const els = {
+            area: document.getElementById('config-area'), startPeil: document.getElementById('config-start-peil'), recovery: document.getElementById('config-recovery'),
+            startQ: document.getElementById('scen-start'), endQ: document.getElementById('scen-end'), time: document.getElementById('scen-time'), interval: document.getElementById('scen-interval'), speed: document.getElementById('scen-speed'),
+            genBtn: document.getElementById('gen-btn'), playBtn: document.getElementById('play-btn'), stopBtn: document.getElementById('stop-btn'),
+            btnLive: document.getElementById('btn-live'), chkAutoSync: document.getElementById('chk-auto-sync'), syncTimerDisp: document.getElementById('sync-timer-display'), liveMsg: document.getElementById('live-status-msg'),
+            status: document.getElementById('sim-status'), mainPeil: document.getElementById('main-peil-display'), tableBody: document.getElementById('scen-body'), wrapper: document.getElementById('scen-wrapper'), container: document.getElementById('scen-container'),
+            lTime: document.getElementById('l-time'), lPeil: document.getElementById('l-peil'), lIn: document.getElementById('l-in'), lOut: document.getElementById('l-out'), lAction: document.getElementById('l-action'),
+            totaalOut: document.getElementById('totaal-afvoer-display'), totaalInInput: document.getElementById('total-afvoer-input'),
+            valW: document.getElementById('val-w'), valBW: document.getElementById('val-bw'), valO: document.getElementById('val-o'), valS: document.getElementById('val-s'),
+            spuiAss: document.querySelectorAll('.gate-assembly'), schipSchuif: document.getElementById('schip-schuif'), applyBtn: document.getElementById('apply-afvoer-btn')
+        };
+
+        let simData = [], intervalId = null, autoSyncInterval = null, countdownInterval = null, secondsUntilUpdate = 600; 
+
+        // --- FETCH LOGICA MET CODETABS PROXY ---
+        async function fetchLiveData() {
+            const btn = els.btnLive;
+            const origText = btn.innerText;
+            btn.innerText = "Verbinden...";
+            btn.disabled = true;
+            els.liveMsg.innerText = "Ophalen via CodeTabs Proxy...";
+            
+            try {
+                // Specifieke API URL voor Sint Pieter Noord (1034) / Debiet (26)
+                // Let op: De API URL is waterinfo-extra.rws.nl, NIET waterinfo.rws.nl voor JSON
+                const targetUrl = "https://waterinfo-extra.rws.nl/api/point/latest/1034/WaarnemingLuchtvaart/26";
+                const proxyUrl = "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(targetUrl);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const response = await fetch(proxyUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) throw new Error("Proxy Status: " + response.status);
+                
+                const data = await response.json();
+                // RWS API response structuur
+                let val = null;
+                if(data && data.waarnemingen && data.waarnemingen.length > 0) {
+                    val = data.waarnemingen[data.waarnemingen.length - 1].waarde;
+                } else if (data && data.waarde !== undefined) {
+                    val = data.waarde;
+                }
+
+                if (val !== null) {
+                    const roundedVal = Math.round(val);
+                    els.liveMsg.innerText = `Ontvangen: ${val.toFixed(1)} m³/s`;
+                    els.liveMsg.style.color = "green";
+                    
+                    els.startQ.value = roundedVal;
+                    els.endQ.value = roundedVal + 20;
+                    els.totaalInInput.value = roundedVal;
+                    
+                    els.applyBtn.click();
+                } else {
+                    throw new Error("Lege/onbekende data structuur");
+                }
+
+            } catch (error) {
+                console.error("Fetch failed:", error);
+                els.liveMsg.innerText = "Proxy geblokkeerd/timeout. Vul handmatig in.";
+                els.liveMsg.style.color = "red";
+            }
+
+            btn.innerText = origText;
+            btn.disabled = false;
+            secondsUntilUpdate = 600;
+        }
+
+        function toggleAutoSync() {
+            if(els.chkAutoSync.checked) {
+                fetchLiveData(); 
+                if(autoSyncInterval) clearInterval(autoSyncInterval);
+                autoSyncInterval = setInterval(fetchLiveData, 600000);
+                if(countdownInterval) clearInterval(countdownInterval);
+                countdownInterval = setInterval(() => {
+                    secondsUntilUpdate--;
+                    if(secondsUntilUpdate < 0) secondsUntilUpdate = 600;
+                    let min = Math.floor(secondsUntilUpdate / 60);
+                    let sec = secondsUntilUpdate % 60;
+                    els.syncTimerDisp.innerText = `${min}:${sec < 10 ? '0' : ''}${sec}`;
+                }, 1000);
+            } else {
+                if(autoSyncInterval) clearInterval(autoSyncInterval);
+                if(countdownInterval) clearInterval(countdownInterval);
+                els.syncTimerDisp.innerText = "PAUZE";
+            }
+        }
+
+        els.chkAutoSync.addEventListener('change', toggleAutoSync);
+        els.btnLive.addEventListener('click', fetchLiveData);
+
+        // --- REKENEN ---
+        function calcSettings(targetQ) {
+            let q = Math.max(0, Math.min(targetQ, MAX_TOTAAL));
+            let res = { mode: 'Klep', spui: 0, schip: 0, realQ: q };
+            if (q <= MAX_KLEP) {
+                res.mode = 'Klep'; res.schip = SCHIP_MIN;
+                let pct = q / MAX_KLEP; res.spui = Math.round(KLEP_MAX - (pct * KLEP_RNG));
+            } else {
+                res.mode = 'Schuif';
+                let needed = q - MAX_KLEP; let schuifCap = MAX_TOTAAL - MAX_KLEP; let pct = needed / schuifCap;
+                res.spui = Math.round(SCHUIF_MIN + (pct * SCHUIF_RNG)); res.schip = Math.round(SCHIP_MIN + (pct * SCHIP_RNG));
+            }
+            return res;
+        }
+
+        function generateScenario() {
+            const area = parseFloat(els.area.value), startP = parseFloat(els.startPeil.value), recoveryMins = parseFloat(els.recovery.value);
+            const sQ = parseFloat(els.startQ.value), eQ = parseFloat(els.endQ.value), dur = parseInt(els.time.value), intv = parseInt(els.interval.value);
+            if (isNaN(sQ) || isNaN(eQ)) { alert("Geen afvoer!"); return []; }
+            let steps = Math.floor(dur / intv), rangeQ = eQ - sQ, currentPeil = startP, data = [], safeRecovery = Math.max(recoveryMins, intv);
+            for (let i = 0; i <= steps; i++) {
+                let t = i * intv, ratio = Math.min(t / dur, 1), riverIn = sQ + (rangeQ * ratio);
+                let diff = currentPeil - PEIL_STREEF, volDiff = (diff / 100) * area, correctieQ = volDiff / (safeRecovery * 60);
+                let targetOut = riverIn + correctieQ, set = calcSettings(targetOut);
+                let qDelta = riverIn - set.realQ, peilChangeCm = ((qDelta * (intv * 60)) / area) * 100;
+                data.push({ time: t, in: riverIn, peilStart: currentPeil, diff: diff, corr: correctieQ, reqOut: targetOut, realOut: set.realQ, settings: set });
+                currentPeil += peilChangeCm;
+            }
+            return data;
+        }
+
+        function updateVisuals(step) {
+            let p = step.peilStart; els.mainPeil.innerText = p.toFixed(2);
+            els.mainPeil.style.color = Math.abs(p - PEIL_STREEF) < 2 ? '#4CAF50' : (p > PEIL_STREEF ? '#d9534f' : '#00549f');
+            let isSchuif = step.settings.mode === 'Schuif';
+            let parts = isSchuif ? [...document.querySelectorAll('.schuif-deel'), els.schipSchuif] : document.querySelectorAll('.klep-deel');
+            let base = isSchuif ? '#666' : '#fff';
+            parts.forEach(el => { el.style.backgroundColor = '#f0e68c'; setTimeout(() => el.style.backgroundColor = base, 300); });
+
+            if (!isSchuif) {
+                els.spuiAss.forEach(a => { a.style.bottom = '0%'; a.querySelector('.schuif-deel').style.backgroundColor='#666'; }); els.schipSchuif.style.bottom = '0%';
+                let pct = (step.settings.spui - KLEP_MIN) / KLEP_RNG; els.spuiAss.forEach(a => a.querySelector('.klep-deel').style.height = (pct * 25) + '%');
+            } else {
+                els.spuiAss.forEach(a => a.querySelector('.klep-deel').style.height = '0%');
+                els.spuiAss.forEach(a => a.style.bottom = ((step.settings.spui - SCHUIF_MIN) / SCHUIF_RNG * 100) + '%');
+                els.schipSchuif.style.bottom = ((step.settings.schip - SCHIP_MIN) / SCHIP_RNG * 100) + '%';
+            }
+            let m = step.settings.mode === 'Klep' ? 'K:' : 'S:', v = step.settings.spui;
+            els.valW.innerText = m+v; els.valBW.innerText = m+v; els.valO.innerText = m+v; els.valS.innerText = step.settings.mode === 'Klep' ? '-' : 'S:'+step.settings.schip;
+            els.totaalOut.innerText = `Stuwafvoer: ${step.realOut.toFixed(1)} m³/s`;
+            els.lTime.innerText = step.time; els.lPeil.innerText = p.toFixed(2); els.lIn.innerText = step.in.toFixed(0); els.lOut.innerText = step.realOut.toFixed(0);
+            if (step.diff > 1) { els.lAction.innerText = "AFVOEREN"; els.lAction.style.color = "#d9534f"; } 
+            else if (step.diff < -1) { els.lAction.innerText = "OPZETTEN"; els.lAction.style.color = "#4fc3f7"; } 
+            else { els.lAction.innerText = "HANDHAVEN"; els.lAction.style.color = "#4CAF50"; }
+        }
+
+        function renderTable(data) {
+            els.tableBody.innerHTML = ''; els.wrapper.style.display = 'block';
+            data.forEach((d, i) => {
+                let tr = document.createElement('tr'); tr.id = 'row-'+i;
+                let diffColor = 'green'; if (d.diff > 2) diffColor = 'red'; if (d.diff < -2) diffColor = 'blue';
+                tr.innerHTML = `<td>${d.time}</td><td>${d.in.toFixed(0)}</td><td>${d.peilStart.toFixed(2)}</td><td style="color:${diffColor}; font-weight:bold;">${d.diff.toFixed(2)}</td><td>${d.corr.toFixed(1)}</td><td>${d.reqOut.toFixed(1)}</td><td>${d.settings.mode}</td>`;
+                els.tableBody.appendChild(tr);
+            });
+        }
+
+        function startSim() {
+            simData = generateScenario(); if(simData.length===0) return; renderTable(simData);
+            let idx = 0; let spd = parseInt(els.speed.value); els.playBtn.disabled = true; els.stopBtn.disabled = false; els.status.innerText = "Simulatie loopt...";
+            if (intervalId) clearInterval(intervalId);
+            intervalId = setInterval(() => {
+                if (idx >= simData.length) { stopSim(); return; } updateVisuals(simData[idx]);
+                document.querySelectorAll('.active-row').forEach(r => r.classList.remove('active-row'));
+                let row = document.getElementById('row-'+idx); if (row) { row.classList.add('active-row'); els.container.scrollTop = row.offsetTop - els.container.offsetTop - 40; }
+                idx++;
+            }, spd);
+        }
+
+        function stopSim() { clearInterval(intervalId); els.playBtn.disabled = false; els.stopBtn.disabled = true; els.status.innerText = "Simulatie gestopt."; }
+
+        els.genBtn.addEventListener('click', () => { simData = generateScenario(); if(simData.length>0) { renderTable(simData); els.status.innerText = "Lijst gereed."; }});
+        els.playBtn.addEventListener('click', startSim); els.stopBtn.addEventListener('click', stopSim);
+        els.applyBtn.addEventListener('click', () => {
+            stopSim(); const inp = parseFloat(els.totaalInInput.value); if(isNaN(inp)) return;
+            const set = calcSettings(inp);
+            updateVisuals({ time: '-', in: inp, peilStart: 4410, diff: 0, corr: 0, reqOut: inp, realOut: set.realQ, settings: set });
+        });
+
+        document.addEventListener('DOMContentLoaded', () => { toggleAutoSync(); });
+
+    </script>
+</body>
+</html>
